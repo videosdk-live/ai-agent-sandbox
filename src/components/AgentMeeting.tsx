@@ -14,9 +14,10 @@ const AgentMeeting: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [inputToken, setInputToken] = useState(tokenFromUrl || "");
   const [inputMeetingId, setInputMeetingId] = useState(meetingIdFromUrl || "");
+  const [userInteracted, setUserInteracted] = useState(false);
 
   // Check if we should auto-join (when URL has both token and meetingId)
-  const shouldAutoJoin = !!(meetingIdFromUrl && tokenFromUrl);
+  const shouldAutoJoin = !!(meetingIdFromUrl && tokenFromUrl && userInteracted);
 
   const handleUpdateParams = () => {
     const newUrl = `${window.location.pathname}?token=${inputToken}&meetingId=${inputMeetingId}`;
@@ -82,9 +83,14 @@ const AgentMeeting: React.FC = () => {
     setIsConnected(true);
   };
 
+  const handleStartMeeting = () => {
+    setUserInteracted(true);
+  };
+
   const handleDisconnect = () => {
     setIsConnected(false);
     setIsConnecting(false);
+    setUserInteracted(false);
   };
 
   // If we have meeting details, render the meeting provider
@@ -108,6 +114,12 @@ const AgentMeeting: React.FC = () => {
           <MeetingInterface
             meetingId={meetingId}
             onDisconnect={handleDisconnect}
+          />
+        ) : meetingIdFromUrl && tokenFromUrl && !userInteracted ? (
+          // Direct link but no user interaction yet (for autoplay policy)
+          <MeetingContainer
+            onConnect={handleStartMeeting}
+            isConnecting={false}
           />
         ) : // Manual join: show container first, then interface after connection
         isConnected ? (
