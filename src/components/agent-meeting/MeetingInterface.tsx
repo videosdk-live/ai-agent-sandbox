@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useMeeting, useParticipant } from "@videosdk.live/react-sdk";
 import { AgentAudioPlayer } from "./AgentAudioPlayer";
+import { AgentVideoPlayer } from "./AgentVideoPlayer";
 import { WaveAvatar } from "./WaveAvatar";
 import { VoiceActivityIndicator } from "./VoiceActivityIndicator";
 import MicWithSlash from "../../icons/MicWithSlash";
@@ -96,7 +97,9 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
     (p) => p.displayName?.includes("Agent") || p.displayName?.includes("Haley")
   );
 
-  const { isActiveSpeaker } = useParticipant(agentParticipant?.id || "");
+  const { isActiveSpeaker, webcamOn } = useParticipant(
+    agentParticipant?.id || ""
+  );
 
   return (
     <div className="meeting-container">
@@ -110,10 +113,15 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
       <div className="meeting-content">
         {/* Agent Avatar with status text */}
         <div className="agent-display-container">
-          <WaveAvatar
-            participantId={agentParticipant?.id}
-            isConnected={isJoined}
-          />
+          {/* Conditionally render video or avatar based on webcamOn */}
+          {isJoined && agentParticipant && webcamOn ? (
+            <AgentVideoPlayer participantId={agentParticipant.id} />
+          ) : (
+            <WaveAvatar
+              participantId={agentParticipant?.id}
+              isConnected={isJoined}
+            />
+          )}
           <div className="agent-status-text">
             {/* <div className="agent-name">
               {isJoined ? "Waiting for Agent..." : "AI Agent"}
