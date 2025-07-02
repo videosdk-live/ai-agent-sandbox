@@ -179,6 +179,190 @@ body {
 }
 /* --- END OF NEW AVATAR STYLES --- */
 
+/* --- AGENT VIDEO PLAYER STYLES --- */
+.agent-video-container {
+  position: relative;
+  width: 8rem; /* 128px - matches avatar size */
+  height: 8rem; /* 128px - matches avatar size */
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border: 3px solid white;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.agent-video-container:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.agent-video-player {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg-secondary);
+  border-radius: 50%;
+}
+
+.video-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+.loading-text {
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
+
+/* Sound frame styles */
+.sound-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.sound-border {
+  position: absolute;
+  top: -3px;
+  left: -3px;
+  right: -3px;
+  bottom: -3px;
+  border: 3px solid;
+  border-radius: 50%;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sound-corner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border-radius: 50%;
+  transition: all 0.1s ease-out;
+}
+
+.sound-corner-1 {
+  top: 15%;
+  left: 15%;
+  animation: sound-pulse-1 1.5s ease-in-out infinite;
+}
+
+.sound-corner-2 {
+  top: 15%;
+  right: 15%;
+  animation: sound-pulse-2 1.5s ease-in-out infinite;
+  animation-delay: 0.2s;
+}
+
+.sound-corner-3 {
+  bottom: 15%;
+  right: 15%;
+  animation: sound-pulse-3 1.5s ease-in-out infinite;
+  animation-delay: 0.4s;
+}
+
+.sound-corner-4 {
+  bottom: 15%;
+  left: 15%;
+  animation: sound-pulse-4 1.5s ease-in-out infinite;
+  animation-delay: 0.6s;
+}
+
+@keyframes sound-pulse-1 {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+
+@keyframes sound-pulse-2 {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+
+@keyframes sound-pulse-3 {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+
+@keyframes sound-pulse-4 {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 480px) {
+  .agent-video-container {
+    width: 7rem; /* Slightly smaller on mobile */
+    height: 7rem; /* Slightly smaller on mobile */
+  }
+
+  .sound-corner {
+    width: 10px;
+    height: 10px;
+  }
+
+  .sound-corner-1,
+  .sound-corner-2 {
+    top: 15%;
+  }
+
+  .sound-corner-1,
+  .sound-corner-4 {
+    left: 15%;
+  }
+
+  .sound-corner-2,
+  .sound-corner-3 {
+    right: 15%;
+  }
+
+  .sound-corner-3,
+  .sound-corner-4 {
+    bottom: 15%;
+  }
+}
+/* --- END OF AGENT VIDEO PLAYER STYLES --- */
+
 /* --- NEW CONTROL PANEL STYLES --- */
 .controls-panel {
   display: flex;
