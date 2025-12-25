@@ -107,32 +107,12 @@ const AgentMeeting: React.FC = () => {
         }}
         token={token}
         reinitialiseMeetingOnConfigChange={false}
-        joinWithoutUserInteraction={shouldAutoJoin}
+        joinWithoutUserInteraction={false} // Always false to prevent auto-join
       >
-        {shouldAutoJoin ? (
-          // Auto-join: go directly to MeetingInterface
-          <MeetingInterface
-            meetingId={meetingId}
-            onDisconnect={handleDisconnect}
-          />
-        ) : meetingIdFromUrl && tokenFromUrl && !userInteracted ? (
-          // Direct link but no user interaction yet (for autoplay policy)
-          <MeetingContainer
-            onConnect={handleStartMeeting}
-            isConnecting={false}
-          />
-        ) : // Manual join: show container first, then interface after connection
-        isConnected ? (
-          <MeetingInterface
-            meetingId={meetingId}
-            onDisconnect={handleDisconnect}
-          />
-        ) : (
-          <MeetingContainer
-            onConnect={handleConnect}
-            isConnecting={isConnecting}
-          />
-        )}
+        <MeetingInterface
+          meetingId={meetingId}
+          onDisconnect={handleDisconnect}
+        />
       </MeetingProvider>
     );
   }
