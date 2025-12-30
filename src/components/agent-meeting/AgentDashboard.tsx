@@ -12,7 +12,9 @@ interface Transcript {
     role: string;
     text: string;
     id: string;
+    uid: string; // Stable ID for React keys
     isPartial?: boolean;
+    timestamp: number;
 }
 
 interface AgentDashboardProps {
@@ -300,6 +302,15 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     const [metricsHistory, setMetricsHistory] = useState<any[]>([]);
     const [transcripts, setTranscripts] = useState<Transcript[]>([]);
     const [events, setEvents] = useState<EventLog[]>([]);
+    const lastFullTurnRef = useRef<boolean>(false);
+    const greetingShownRef = useRef<boolean>(false);
+    const lastEventTimeRef = useRef<number>(0);
+
+    // Helper function to sort transcripts by timestamp
+    const sortTranscripts = (transcripts: Transcript[]) => {
+        return transcripts.sort((a, b) => a.timestamp - b.timestamp);
+    };
+
 
     const { localParticipant, participants, toggleMic } = useMeeting();
 
@@ -357,6 +368,8 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                     ? JSON.parse(message.message)
                     : message.message;
 
+
+
                 // Check if it's the new format with type and metrics fields
                 if (payload.type && payload.metrics) {
                     const type = payload.type; // "realtime" or "cascading"
@@ -368,51 +381,223 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                         : payload.metrics;
 
 
-
                     // Set pipeline type
                     setPipelineType(type);
+
+
 
                     // Update current metrics for real-time display
                     // Merge if it's partial data, otherwise replace if full turn
                     setMetrics((prev: any) => {
-                        if (fullTurnData) return metricsData;
-                        return { ...prev, ...metricsData };
+                        if (fullTurnData) {
+                            lastFullTurnRef.current = true;
+                            return metricsData;
+                        }
+
+                        const isNewTurn = lastFullTurnRef.current;
+                        lastFullTurnRef.current = false;
+
+                        // If it's a new turn, start with an empty object but preserve provider/model info
+                        let base = (prev || {});
+                        if (isNewTurn) {
+                            const preserved: any = {};
+                            const keysToPreserve = [
+                                'provider_class_name', 'provider_model_name',
+                                'stt_provider_class', 'stt_model_name',
+                                'llm_provider_class', 'llm_model_name',
+                                'tts_provider_class', 'tts_model_name'
+                            ];
+                            keysToPreserve.forEach(key => {
+                                if (base[key]) preserved[key] = base[key];
+                            });
+                            base = preserved;
+                        }
+
+                        // Merge only non-null values
+                        const updates: any = {};
+                        Object.keys(metricsData).forEach(key => {
+                            if (metricsData[key] !== null && metricsData[key] !== undefined) {
+                                updates[key] = metricsData[key];
+                            }
+                        });
+
+                        return { ...base, ...updates };
                     });
 
                     // Only update history (for graph) when full_turn_data is true
                     if (fullTurnData) {
                         setMetricsHistory((prev: any[]) => [...prev, metricsData].slice(-20));
+
                         addEvent("fullTurnComplete", { type });
+                    }
+
+                    // Handle user_speech field for immediate display
+                    // Only process if there's no timeline data (to avoid redundant updates)
+                    if (metricsData.user_speech && typeof metricsData.user_speech === 'string' &&
+                        (!metricsData.timeline || !Array.isArray(metricsData.timeline) || metricsData.timeline.length === 0)) {
+
+                        const userText = metricsData.user_speech;
+                        setTranscripts(prev => {
+                            // Check if there's already a partial user message (interim result)
+                            const lastUserIndex = [...prev].reverse().findIndex(t => t.role === 'user');
+                            const actualIndex = lastUserIndex >= 0 ? prev.length - 1 - lastUserIndex : -1;
+
+                            if (actualIndex >= 0 && prev[actualIndex].isPartial) {
+                                const prevText = prev[actualIndex].text;
+                                // Check if this is a continuation (new text is longer and contains previous)
+                                // or a new segment (completely different text)
+                                const isContinuation = userText.length > prevText.length && userText.includes(prevText);
+
+                                if (isContinuation) {
+                                    // Update the existing partial user message (continuous speech)
+
+                                    const newTranscripts = [...prev];
+                                    newTranscripts[actualIndex] = {
+                                        ...newTranscripts[actualIndex],
+                                        text: userText
+                                    };
+                                    return sortTranscripts(newTranscripts);
+                                } else {
+                                    // New segment after pause - finalize previous and add new
+
+                                    const newTranscripts = [...prev];
+                                    newTranscripts[actualIndex] = {
+                                        ...newTranscripts[actualIndex],
+                                        isPartial: false // Finalize the previous segment
+                                    };
+                                    const tempId = `temp-user-${Date.now()}`;
+                                    const updated = [...newTranscripts, {
+                                        role: "user" as const,
+                                        text: userText,
+                                        id: tempId,
+                                        uid: `uid-${Date.now()}-${Math.random()}`,
+                                        isPartial: true,
+                                        timestamp: lastEventTimeRef.current + 0.01
+                                    }];
+                                    return sortTranscripts(updated).slice(-50);
+                                }
+                            } else {
+                                // Add new user message if no partial exists
+                                const existingIndex = prev.findIndex(t => t.text === userText);
+                                if (existingIndex === -1) {
+
+                                    const tempId = `temp-user-${Date.now()}`;
+                                    const updated = [...prev, {
+                                        role: "user" as const,
+                                        text: userText,
+                                        id: tempId,
+                                        uid: `uid-${Date.now()}-${Math.random()}`,
+                                        isPartial: true,
+                                        timestamp: lastEventTimeRef.current + 0.01
+                                    }];
+                                    return sortTranscripts(updated).slice(-50);
+                                }
+                                return prev;
+                            }
+                        });
+                    }
+
+                    // Handle agent_speech field directly (for initial greeting)
+                    // Only process if there's no timeline data (to avoid duplicates)
+                    if (metricsData.agent_speech && typeof metricsData.agent_speech === 'string' &&
+                        (!metricsData.timeline || !Array.isArray(metricsData.timeline) || metricsData.timeline.length === 0)) {
+
+                        const agentText = metricsData.agent_speech;
+
+                        // Only add as greeting if this is the first agent message
+                        if (!greetingShownRef.current) {
+                            const greetingId = `greeting-${agentText}`;
+
+                            setTranscripts(prev => {
+                                // Check if this greeting already exists
+                                const existingIndex = prev.findIndex(t => t.id === greetingId || t.text === agentText);
+
+                                if (existingIndex === -1) {
+                                    greetingShownRef.current = true;
+                                    const updated = [...prev, {
+                                        role: "agent" as const,
+                                        text: agentText,
+                                        id: greetingId,
+                                        uid: `uid-${Date.now()}-${Math.random()}`,
+                                        isPartial: false,
+                                        timestamp: 0 // Greeting always first
+                                    }];
+                                    return sortTranscripts(updated).slice(-50);
+                                }
+                                return prev;
+                            });
+                        } else {
+                            // For non-greeting agent messages, add them immediately with temp ID
+                            setTranscripts(prev => {
+                                const tempId = `temp-agent-${Date.now()}`;
+                                const existingIndex = prev.findIndex(t => t.text === agentText);
+
+                                if (existingIndex === -1) {
+
+                                    const updated = [...prev, {
+                                        role: "agent",
+                                        text: agentText,
+                                        id: tempId,
+                                        uid: `uid-${Date.now()}-${Math.random()}`,
+                                        isPartial: true,
+                                        timestamp: lastEventTimeRef.current + 0.02
+                                    }];
+                                    return sortTranscripts(updated).slice(-50);
+                                }
+                                return prev;
+                            });
+                        }
                     }
 
                     // Update transcripts from timeline if available
                     if (metricsData.timeline && Array.isArray(metricsData.timeline)) {
+
                         metricsData.timeline.forEach((event: any) => {
-                            if (event.event_type && event.text && event.end_time) {
+                            if (event.event_type && event.text) {
+                                // Update last known event time
+                                const eventTime = event.end_time || event.start_time;
+                                if (eventTime && typeof eventTime === 'number') {
+                                    lastEventTimeRef.current = Math.max(lastEventTimeRef.current, eventTime);
+                                }
+
+
                                 const role = event.event_type === "user_speech" ? "user" : "agent";
                                 setTranscripts(prev => {
                                     const id = `${event.start_time}-${role}`;
-                                    const existingIndex = prev.findIndex(t => t.id === id);
+                                    const existingIndex = prev.findIndex(t => t.id === id || t.text === event.text);
 
                                     if (existingIndex !== -1) {
-                                        // Update existing item if text changed
-                                        if (prev[existingIndex].text !== event.text) {
+                                        // Update existing item if:
+                                        // 1. It has a temp ID (needs to be finalized with timeline ID)
+                                        // 2. Text changed
+                                        // 3. End time is available and it was partial
+                                        if (prev[existingIndex].id.startsWith('temp-') || prev[existingIndex].text !== event.text || (event.end_time && prev[existingIndex].isPartial)) {
                                             const newTranscripts = [...prev];
                                             newTranscripts[existingIndex] = {
                                                 ...newTranscripts[existingIndex],
-                                                text: event.text
+                                                text: event.text,
+                                                isPartial: !event.end_time,
+                                                id,  // Update to timeline ID
+                                                timestamp: event.start_time // Update to accurate timeline timestamp
                                             };
-                                            return newTranscripts;
+
+                                            return sortTranscripts(newTranscripts);
                                         }
+
                                         return prev;
                                     }
 
-                                    return [...prev, {
+                                    const newTranscript = {
                                         role,
                                         text: event.text,
                                         id,
-                                        isPartial: false
-                                    }].slice(-50);
+                                        uid: `uid-${Date.now()}-${Math.random()}`,
+                                        isPartial: !event.end_time,
+                                        timestamp: event.start_time
+                                    };
+
+                                    const updated = [...prev, newTranscript];
+                                    return sortTranscripts(updated).slice(-50);
                                 });
                             }
                         });
@@ -445,14 +630,12 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                             const newMsg = {
                                 role,
                                 text: data.text,
-                                id: data.id || `${Date.now()}-${Math.random()}`,
-                                isPartial: data.type === "partial"
+                                id: `${Date.now()}-${role}`,
+                                uid: `uid-${Date.now()}-${Math.random()}`,
+                                isPartial: false,
+                                timestamp: lastEventTimeRef.current + 0.01
                             };
-
-                            if (prev.length > 0 && prev[prev.length - 1].isPartial && prev[prev.length - 1].role === role) {
-                                return [...prev.slice(0, -1), newMsg];
-                            }
-                            return [...prev, newMsg].slice(-50);
+                            return sortTranscripts([...prev, newMsg]).slice(-50);
                         });
                     }
                 }
@@ -501,6 +684,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                 { label: "LLM Latency", value: formatValue(metrics.llm_ttft) },
                 { label: "TTS Latency", value: formatValue(metrics.tts_latency) },
                 { label: "E2E Latency", value: formatValue(metrics.e2e_latency) },
+                { label: "EOU Latency", value: formatValue(metrics.eou_latency) },
+                { label: "LLM Duration", value: formatValue(metrics.llm_duration) },
+                { label: "TTS Characters", value: metrics.tts_characters || "-" },
                 { label: "Total Tokens", value: metrics.total_tokens || "-" },
                 { label: "Interrupted", value: metrics.interrupted ? "Yes" : "No" }
             ];
@@ -567,11 +753,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                                 </div>
                             ) : (
                                 transcripts.map((t) => (
-                                    <div key={t.id} className={`chat-row ${t.role}`}>
+                                    <div key={t.uid} className={`chat-row ${t.role}`}>
                                         <span className="role-label">{t.role === "user" ? "User" : "Agent"}</span>
                                         <div className="message-bubble">
                                             {t.text}
-                                            {t.isPartial && <span className="cursor">|</span>}
                                         </div>
                                     </div>
                                 ))
