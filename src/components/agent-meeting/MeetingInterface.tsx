@@ -4,6 +4,7 @@ import { AgentAudioPlayer } from "./AgentAudioPlayer";
 import { AgentVideoPlayer } from "./AgentVideoPlayer";
 import { WaveAvatar } from "./WaveAvatar";
 import { VoiceActivityIndicator } from "./VoiceActivityIndicator";
+import { AgentDashboard } from "./AgentDashboard";
 import MicWithSlash from "../../icons/MicWithSlash";
 
 interface MeetingInterfaceProps {
@@ -22,22 +23,22 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
   const { join, leave, toggleMic, participants, localParticipant, localMicOn } =
     useMeeting({
       onMeetingJoined: () => {
-        console.log("Meeting joined successfully");
+
         setIsJoined(true);
         setConnectionError(null);
         joinAttempted.current = true;
       },
       onMeetingLeft: () => {
-        console.log("Meeting left");
+
         setIsJoined(false);
         joinAttempted.current = false;
         onDisconnect();
       },
       onParticipantJoined: (participant) => {
-        console.log("Participant joined:", participant.displayName);
+
       },
       onParticipantLeft: (participant) => {
-        console.log("Participant left:", participant.displayName);
+
       },
       onError: (error) => {
         console.error("Meeting error:", error);
@@ -46,29 +47,27 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
     });
 
   useEffect(() => {
-    if (!joinAttempted.current) {
-      console.log("Attempting to join meeting:", meetingId);
-      const timer = setTimeout(() => {
-        if (!isJoined && !joinAttempted.current) {
-          try {
-            join();
-            joinAttempted.current = true;
-          } catch (error) {
-            console.error("Error joining meeting:", error);
-            setConnectionError("Failed to join meeting");
-          }
-        }
-      }, 1000);
+    // We no longer auto-join here. The user must click "Connect".
+    // But if we wanted to support auto-join via prop, we could do it here.
+  }, []);
 
-      return () => clearTimeout(timer);
+  const handleConnect = () => {
+    if (!isJoined && !joinAttempted.current) {
+      try {
+        join();
+        joinAttempted.current = true;
+      } catch (error) {
+        console.error("Error joining meeting:", error);
+        setConnectionError("Failed to join meeting");
+      }
     }
-  }, [join, meetingId, isJoined]);
+  };
 
   const handleToggleMic = () => {
     if (isJoined) {
       toggleMic();
     } else {
-      console.log("Not Connected : Please connect to the meeting first");
+
     }
   };
 
@@ -101,89 +100,36 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
     agentParticipant?.id || ""
   );
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const hasTokenAndMeetingId = urlParams.has("token") && urlParams.has("meetingId");
+
   return (
     <div className="meeting-container">
-      <div className="meeting-header">
-        <button onClick={handleReturn} className="return-button">
-          <span>←</span>
-          <span>Return</span>
-        </button>
+      {!hasTokenAndMeetingId && (
+        <div className="meeting-header">
+          <button onClick={handleReturn} className="return-button">
+            <span>←</span>
+            <span>Return</span>
+          </button>
+        </div>
+      )}
+
+      <div className="meeting-content sandbox-mode">
+        <AgentDashboard
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+          isJoined={isJoined}
+          agentParticipantId={agentParticipant?.id}
+          webcamOn={webcamOn}
+        />
       </div>
 
-      <div className="meeting-content">
-        {/* Agent Avatar with status text */}
-        <div className="agent-display-container">
-          {/* Conditionally render video or avatar based on webcamOn */}
-          {isJoined && agentParticipant && webcamOn ? (
-            <AgentVideoPlayer participantId={agentParticipant.id} />
-          ) : (
-            <WaveAvatar
-              participantId={agentParticipant?.id}
-              isConnected={isJoined}
-            />
-          )}
-          <div className="agent-status-text">
-            {/* <div className="agent-name">
-              {isJoined ? "Waiting for Agent..." : "AI Agent"}
-            </div> */}
-            <div className="agent-mic-status">
-              {isJoined
-                ? agentParticipant
-                  ? isActiveSpeaker
-                    ? "Speaking..."
-                    : "Listening"
-                  : "Connecting..."
-                : "Offline"}
-            </div>
-          </div>
-        </div>
-
-        {/* Control Panel */}
-        <div className="controls-panel">
-          <div
-            className="mic-control-container"
-            onClick={handleToggleMic}
-            title={localMicOn ? "Mute microphone" : "Unmute microphone"}
-          >
-            <button className="mic-control-button" disabled={!isJoined}>
-              <MicWithSlash disabled={!localMicOn} />
-            </button>
-            <VoiceActivityIndicator
-              localParticipantId={localParticipant?.id}
-              isEnabled={isJoined && localMicOn}
-            />
-          </div>
-        </div>
-
-        {/* Connection Status */}
-        {connectionError && (
-          <div
-            style={{
-              color: "var(--text-secondary)",
-              fontSize: "0.875rem",
-              textAlign: "center",
-            }}
-          >
-            {connectionError}
-          </div>
-        )}
-
-        {!isJoined && !connectionError && (
-          <div
-            style={{
-              color: "var(--text-secondary)",
-              fontSize: "0.875rem",
-              textAlign: "center",
-            }}
-          >
-            Joining meeting...
-          </div>
-        )}
-      </div>
-
-      {/* Agent Audio Player */}
+      {/* Hidden players for audio/video processing */}
       {agentParticipant && (
-        <AgentAudioPlayer participantId={agentParticipant.id} />
+        <div style={{ display: "none" }}>
+          <AgentAudioPlayer participantId={agentParticipant.id} />
+          {webcamOn && <AgentVideoPlayer participantId={agentParticipant.id} />}
+        </div>
       )}
     </div>
   );
