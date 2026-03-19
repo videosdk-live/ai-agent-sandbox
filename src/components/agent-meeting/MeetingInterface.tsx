@@ -92,9 +92,10 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
   };
 
   const participantsList = Array.from(participants.values());
-  const agentParticipant = participantsList.find(
-    (p) => p.displayName?.includes("Agent") || p.displayName?.includes("Haley")
-  );
+  const agentParticipant = participantsList.find((p) => {
+    const meta = p.metaData as { is_videosdk_agent?: boolean } | null | undefined;
+    return meta?.is_videosdk_agent === true;
+  });
 
   const { isActiveSpeaker, webcamOn } = useParticipant(
     agentParticipant?.id || ""
