@@ -12,7 +12,7 @@
     "@types/node": "^16.18.126",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",
-    "@videosdk.live/react-sdk": "0.3.4",
+    "@videosdk.live/react-sdk": "^0.8.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-player": "^2.16.0",
