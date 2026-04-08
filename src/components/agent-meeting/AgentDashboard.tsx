@@ -257,11 +257,13 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
         const mapped: any = {};
 
         if (payload.latency) {
-            if (payload.latency.e2eLatency != null) mapped.e2e_latency = payload.latency.e2eLatency;
-            if (payload.latency.ttfb != null) mapped.ttfb = payload.latency.ttfb;
-            if (payload.latency.sttLatency != null) mapped.stt_latency = payload.latency.sttLatency;
-            if (payload.latency.ttft != null) mapped.llm_ttft = payload.latency.ttft;
-            if (payload.latency.eouLatency != null) mapped.eou_latency = payload.latency.eouLatency;
+            // Normalize everything to ms
+            const toMs = (v: number) => v < 100 ? v * 1000 : v;
+            if (payload.latency.e2eLatency != null) mapped.e2e_latency = toMs(payload.latency.e2eLatency);
+            if (payload.latency.ttfb != null) mapped.ttfb = toMs(payload.latency.ttfb);
+            if (payload.latency.sttLatency != null) mapped.stt_latency = toMs(payload.latency.sttLatency);
+            if (payload.latency.ttft != null) mapped.llm_ttft = toMs(payload.latency.ttft);
+            if (payload.latency.eouLatency != null) mapped.eou_latency = toMs(payload.latency.eouLatency);
         }
 
         if (payload.providers?.providerClass) {
