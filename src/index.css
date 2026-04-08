@@ -1655,6 +1655,43 @@ body,
   background: #0a0a0a;
 }
 
+.system-instructions-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.system-instructions-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.instructions-toggle {
+  padding: 4px;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.instructions-toggle:hover {
+  color: #ccc;
+}
+
+.system-instructions-content {
+  padding: 12px;
+  background: #0a0a0a;
+  overflow-y: auto;
+  max-height: 150px;
+}
+
+.system-instructions-content p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: #999;
+  word-break: break-word;
+}
+
 .metrics-info-grid {
   display: flex;
   flex-direction: column;

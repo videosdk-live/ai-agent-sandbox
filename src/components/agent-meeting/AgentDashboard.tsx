@@ -53,15 +53,22 @@ const LatencyBarChart: React.FC<{ history: any[]; pipelineType: string | null }>
 
     const metrics = getMetricsConfig(pipelineType);
 
-    const maxValue = Math.max(
+    const dataMax = Math.max(
         ...history.flatMap(d => metrics.map(m => d[m.key] || 0)),
-        1000
+        1
     );
+    const maxValue = dataMax * 1.2;
 
     const yAxisSteps = 4;
     const yAxisLabels = Array.from({ length: yAxisSteps + 1 }, (_, i) => {
         const value = (maxValue / yAxisSteps) * (yAxisSteps - i);
-        return (value / 1000).toFixed(1);
+        if (maxValue >= 1000) {
+            return `${(value / 1000).toFixed(1)}s`;
+        }
+        if (maxValue < 10) {
+            return `${value.toFixed(1)}ms`;
+        }
+        return `${Math.round(value)}ms`;
     });
 
     return (
@@ -70,7 +77,7 @@ const LatencyBarChart: React.FC<{ history: any[]; pipelineType: string | null }>
                 <div className="y-axis">
                     {yAxisLabels.map((label, idx) => (
                         <div key={idx} className="y-axis-label">
-                            {label}s
+                            {label}
                         </div>
                     ))}
                 </div>
@@ -158,6 +165,20 @@ const Mic: React.FC<{ size?: number; className?: string }> = ({ size = 24, class
     </svg>
 );
 
+const Eye: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = "" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+    </svg>
+);
+
+const EyeOff: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = "" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+        <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+);
+
 const Info: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = "" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
         <circle cx="12" cy="12" r="10" />
@@ -181,6 +202,8 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     const [pipelineType, setPipelineType] = useState<string | null>(null);
     const [metricsHistory, setMetricsHistory] = useState<any[]>([]);
     const [transcripts, setTranscripts] = useState<Transcript[]>([]);
+    const [systemInstructions, setSystemInstructions] = useState<string | null>(null);
+    const [showInstructions, setShowInstructions] = useState(false);
 
     // Track the current speaker's transcript id so we can update it in-place
     const currentSpeakerRef = useRef<{ role: string; id: string } | null>(null);
@@ -202,6 +225,7 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
             setMetrics(null);
             setPipelineType(null);
             setTranscripts([]);
+            setSystemInstructions(null);
             currentSpeakerRef.current = null;
             return;
         }
@@ -214,6 +238,11 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     useEffect(() => {
         if (!latestMetrics) return;
         const payload = latestMetrics;
+
+        // Capture system instructions (only sent in first turn)
+        if (payload.systemInstructions && !systemInstructions) {
+            setSystemInstructions(payload.systemInstructions);
+        }
 
         // Detect pipeline type from providers
         if (payload.providers) {
@@ -254,8 +283,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
 
         setMetrics((prev: any) => ({ ...(prev || {}), ...mapped }));
 
-        const hasLatencyData = payload.latency && Object.keys(payload.latency).length > 0;
-        if (hasLatencyData) {
+        const latencyValues = payload.latency ? Object.values(payload.latency) : [];
+        const hasMeaningfulLatency = latencyValues.length > 0 && latencyValues.some((v: any) => typeof v === 'number' && v > 0);
+        if (hasMeaningfulLatency) {
             setMetricsHistory((prev: any[]) => [...prev, mapped].slice(-20));
         }
     }, [latestMetrics]);
@@ -267,10 +297,8 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
         const { segment, participant } = latestTranscription;
         if (!segment?.text) return;
 
-        const meta = participant?.metaData as any;
         const name = participant?.displayName || "";
-        const isAgent = meta?.is_videosdk_agent === true
-            || name.toLowerCase().includes("agent");
+        const isAgent = (participant as any)?.isAgent === true;
         const role = isAgent ? "agent" : "user";
         const participantName = name || (isAgent ? "Agent" : "User");
         const text = segment.text;
@@ -308,7 +336,13 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     const formatValue = (value: any, unit: string = "ms") => {
         if (value === null || value === undefined) return "-";
         if (unit === "ms") {
-            return `${(value / 1000).toFixed(2)}s`;
+            if (value >= 1000) {
+                return `${(value / 1000).toFixed(2)}s`;
+            }
+            if (value < 10) {
+                return `${value.toFixed(2)}ms`;
+            }
+            return `${Math.round(value)}ms`;
         }
         return String(value);
     };
@@ -467,6 +501,30 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                             )}
                         </div>
                     </div>
+
+                    {/* System Instructions Panel */}
+                    {systemInstructions && (
+                        <div className="cc-panel system-instructions-panel">
+                            <div className="panel-header">
+                                <div className="header-left">
+                                    <Info size={14} />
+                                    <span>SYSTEM INSTRUCTIONS</span>
+                                </div>
+                                <button
+                                    className="cc-icon-btn instructions-toggle"
+                                    onClick={() => setShowInstructions(!showInstructions)}
+                                    title={showInstructions ? "Hide instructions" : "Show instructions"}
+                                >
+                                    {showInstructions ? <Eye size={16} /> : <EyeOff size={16} />}
+                                </button>
+                            </div>
+                            {showInstructions && (
+                                <div className="system-instructions-content">
+                                    <p>{systemInstructions}</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Metrics Info Panel */}
                     <div className="cc-panel metrics-info-panel">
