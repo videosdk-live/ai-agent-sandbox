@@ -1,19 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-import { usePubSub, useMeeting, useParticipant } from "@videosdk.live/react-sdk";
+import { useMeeting, useParticipant } from "@videosdk.live/react-sdk";
 import { AgentVideoPlayer } from "./AgentVideoPlayer";
-
-interface EventLog {
-    timestamp: string;
-    event: string;
-    data?: any;
-}
 
 interface Transcript {
     role: string;
     text: string;
     id: string;
-    uid: string; // Stable ID for React keys
-    isPartial?: boolean;
+    uid: string;
+    participantName?: string;
     timestamp: number;
 }
 
@@ -23,111 +17,10 @@ interface AgentDashboardProps {
     isJoined: boolean;
     agentParticipantId?: string;
     webcamOn?: boolean;
+    agentState?: string;
+    latestMetrics?: any;
+    latestTranscription?: any;
 }
-
-// Simple SVG Line Chart Component for Timeline Graph
-const MetricGraph: React.FC<{ data: any[]; pipelineType: string | null }> = ({ data, pipelineType }) => {
-
-    if (!data || data.length === 0) return <div className="graph-placeholder">Waiting for data...</div>;
-
-    const width = 300;
-    const height = 150;
-    const padding = 30;
-
-    // Different metrics for different pipeline types
-    const getMetrics = (d: any) => {
-        if (pipelineType === "realtime") {
-            return {
-                metric1: d.ttfb || 0,
-                metric2: d.e2e_latency || 0,
-                metric3: d.thinking_delay || 0
-            };
-        } else {
-            return {
-                metric1: d.stt_latency || 0,
-                metric2: d.llm_ttft || 0,
-                metric3: d.tts_latency || 0
-            };
-        }
-    };
-
-    const maxVal = Math.max(...data.map(d => {
-        const m = getMetrics(d);
-        return Math.max(m.metric1, m.metric2, m.metric3);
-    }), 1000);
-
-    const getX = (i: number) => padding + (i / (Math.max(data.length - 1, 1))) * (width - 2 * padding);
-    const getY = (val: number) => height - padding - ((val || 0) / maxVal) * (height - 2 * padding);
-
-    const makePath = (metricKey: string) => {
-        return data.map((d, i) => {
-            const metrics = getMetrics(d);
-            const val = metrics[metricKey as keyof typeof metrics];
-            return `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(val)}`;
-        }).join(' ');
-    };
-
-    return (
-        <div className="metric-graph">
-            <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible' }}>
-                {/* Grid Lines & Y-Axis Labels */}
-                {[0, 0.5, 1].map(t => {
-                    const val = Math.round(maxVal * t);
-                    const y = getY(val);
-                    return (
-                        <g key={t}>
-                            <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#333" strokeWidth="1" strokeDasharray="4 4" />
-                            <text x={padding - 5} y={y + 3} fill="#666" fontSize="10" textAnchor="end">
-                                {(val / 1000).toFixed(1)}s
-                            </text>
-                        </g>
-                    );
-                })}
-
-                {/* X-Axis Labels */}
-                <text x={padding} y={height - 5} fill="#666" fontSize="10" textAnchor="middle">Start</text>
-                <text x={width - padding} y={height - 5} fill="#666" fontSize="10" textAnchor="middle">Now</text>
-
-                {/* Paths */}
-                <path d={makePath('metric1')} fill="none" stroke="#60a5fa" strokeWidth="2" />
-                <path d={makePath('metric2')} fill="none" stroke="#f87171" strokeWidth="2" />
-                <path d={makePath('metric3')} fill="none" stroke="#34d399" strokeWidth="2" />
-
-                {/* Interruption Lines */}
-                {data.map((d, i) => (
-                    d.interrupted && (
-                        <line
-                            key={i}
-                            x1={getX(i)}
-                            y1={padding}
-                            x2={getX(i)}
-                            y2={height - padding}
-                            stroke="#fbbf24"
-                            strokeWidth="1"
-                            strokeDasharray="4 2"
-                            opacity="0.5"
-                        />
-                    )
-                ))}
-            </svg>
-            <div className="graph-legend">
-                {pipelineType === "realtime" ? (
-                    <>
-                        <span style={{ color: "#3b82f6" }}>● TTFB</span>
-                        <span style={{ color: "#ef4444" }}>● E2E Latency</span>
-                        <span style={{ color: "#10b981" }}>● Thinking</span>
-                    </>
-                ) : (
-                    <>
-                        <span style={{ color: "#3b82f6" }}>● STT</span>
-                        <span style={{ color: "#ef4444" }}>● LLM</span>
-                        <span style={{ color: "#10b981" }}>● TTS</span>
-                    </>
-                )}
-            </div>
-        </div>
-    );
-};
 
 // Helper to get metrics configuration based on pipeline type
 const getMetricsConfig = (pipelineType: string | null) => {
@@ -141,7 +34,8 @@ const getMetricsConfig = (pipelineType: string | null) => {
     return [
         { key: 'stt_latency', label: 'STT', color: '#1d4ed8', borderColor: '#60a5fa' },
         { key: 'llm_ttft', label: 'LLM', color: '#b91c1c', borderColor: '#f87171' },
-        { key: 'ttfb', label: 'TTS', color: '#047857', borderColor: '#34d399' },
+        { key: 'ttfb', label: 'TTFB', color: '#047857', borderColor: '#34d399' },
+        { key: 'eou_latency', label: 'EOU', color: '#7c3aed', borderColor: '#a78bfa' },
         { key: 'e2e_latency', label: 'E2E', color: '#c2410c', borderColor: '#fbbf24' }
     ];
 };
@@ -159,13 +53,11 @@ const LatencyBarChart: React.FC<{ history: any[]; pipelineType: string | null }>
 
     const metrics = getMetricsConfig(pipelineType);
 
-    // Find max value across all data points for scaling
     const maxValue = Math.max(
         ...history.flatMap(d => metrics.map(m => d[m.key] || 0)),
         1000
     );
 
-    // Generate y-axis labels (in seconds)
     const yAxisSteps = 4;
     const yAxisLabels = Array.from({ length: yAxisSteps + 1 }, (_, i) => {
         const value = (maxValue / yAxisSteps) * (yAxisSteps - i);
@@ -175,7 +67,6 @@ const LatencyBarChart: React.FC<{ history: any[]; pipelineType: string | null }>
     return (
         <div className="vertical-bar-chart">
             <div className="bar-chart-main">
-                {/* Y-axis labels */}
                 <div className="y-axis">
                     {yAxisLabels.map((label, idx) => (
                         <div key={idx} className="y-axis-label">
@@ -184,16 +75,13 @@ const LatencyBarChart: React.FC<{ history: any[]; pipelineType: string | null }>
                     ))}
                 </div>
 
-                {/* Chart area with bars */}
                 <div className="chart-area">
-                    {/* Grid lines */}
                     <div className="grid-lines">
                         {yAxisLabels.map((_, idx) => (
                             <div key={idx} className="grid-line" />
                         ))}
                     </div>
 
-                    {/* Bars container */}
                     <div className="bar-chart-container">
                         {history.map((dataPoint, turnIdx) => (
                             <div key={turnIdx} className="turn-group">
@@ -223,25 +111,14 @@ const LatencyBarChart: React.FC<{ history: any[]; pipelineType: string | null }>
                         ))}
                     </div>
 
-                    {/* X-axis baseline */}
                     <div className="x-axis-baseline" />
                 </div>
             </div>
-
-
         </div>
     );
 };
 
-
-
 // Icons
-const Zap: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = "" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-);
-
 const MessageSquare: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = "" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -294,56 +171,22 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
     onDisconnect,
     isJoined,
     agentParticipantId,
-    webcamOn
+    webcamOn,
+    agentState,
+    latestMetrics,
+    latestTranscription,
 }) => {
     const [status, setStatus] = useState<string>("offline");
     const [metrics, setMetrics] = useState<any>(null);
     const [pipelineType, setPipelineType] = useState<string | null>(null);
     const [metricsHistory, setMetricsHistory] = useState<any[]>([]);
     const [transcripts, setTranscripts] = useState<Transcript[]>([]);
-    const [events, setEvents] = useState<EventLog[]>([]);
-    const lastFullTurnRef = useRef<boolean>(false);
-    const greetingShownRef = useRef<boolean>(false);
-    const lastEventTimeRef = useRef<number>(0);
 
-    // Helper function to sort transcripts by timestamp
-    const sortTranscripts = (transcripts: Transcript[]) => {
-        return transcripts.sort((a, b) => a.timestamp - b.timestamp);
-    };
+    // Track the current speaker's transcript id so we can update it in-place
+    const currentSpeakerRef = useRef<{ role: string; id: string } | null>(null);
 
-
-    const { localParticipant, participants, toggleMic } = useMeeting();
-
-    // Find agent participant
-    const participantsList = Array.from(participants.values());
-    const agentParticipant = participantsList.find(
-        (p) => p.displayName?.includes("Agent") || p.displayName?.includes("Haley")
-    );
-
-    // Get speaking status
-    const { isActiveSpeaker: isAgentSpeaking } = useParticipant(agentParticipant?.id || "");
-    const { isActiveSpeaker: isUserSpeaking, micOn: isMicOn } = useParticipant(localParticipant?.id || "");
-
-    // Heuristic State Machine
-    useEffect(() => {
-        if (!isJoined) {
-            setStatus("offline");
-            setMetricsHistory([]);
-            return;
-        }
-
-        if (isAgentSpeaking) {
-            setStatus("speaking");
-        } else if (isUserSpeaking) {
-            setStatus("listening");
-        } else {
-            setStatus((prev) => {
-                if (prev === "listening") return "thinking";
-                if (prev === "speaking") return "listening";
-                return prev === "offline" ? "listening" : prev;
-            });
-        }
-    }, [isAgentSpeaking, isUserSpeaking, isJoined]);
+    const { localParticipant, toggleMic } = useMeeting();
+    const { micOn: isMicOn } = useParticipant(localParticipant?.id || "");
 
     const transcriptEndRef = useRef<HTMLDivElement>(null);
 
@@ -351,299 +194,115 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
         transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [transcripts]);
 
-    const addEvent = (event: string, data?: any) => {
-        const newEvent = {
-            timestamp: new Date().toLocaleTimeString([], { hour12: false }),
-            event,
-            data
-        };
-        setEvents(prev => [...prev, newEvent].slice(-50));
-    };
+    // Agent state from hook
+    useEffect(() => {
+        if (!isJoined) {
+            setStatus("offline");
+            setMetricsHistory([]);
+            setMetrics(null);
+            setPipelineType(null);
+            setTranscripts([]);
+            currentSpeakerRef.current = null;
+            return;
+        }
+        if (agentState) {
+            setStatus(agentState);
+        }
+    }, [agentState, isJoined]);
 
-    usePubSub("AGENT_METRICS", {
-        onMessageReceived: (message) => {
-            try {
-                // Handle both string and object inputs
-                const payload = typeof message.message === 'string'
-                    ? JSON.parse(message.message)
-                    : message.message;
+    // Process metrics — only for latency & provider info, NOT transcripts
+    useEffect(() => {
+        if (!latestMetrics) return;
+        const payload = latestMetrics;
 
-
-
-                // Check if it's the new format with type and metrics fields
-                if (payload.type && payload.metrics) {
-                    const type = payload.type; // "realtime" or "cascading"
-                    const fullTurnData = payload.full_turn_data || false;
-
-                    // Parse the stringified metrics
-                    const metricsData = typeof payload.metrics === 'string'
-                        ? JSON.parse(payload.metrics)
-                        : payload.metrics;
-
-
-                    // Set pipeline type
-                    setPipelineType(type);
-
-
-
-                    // Update current metrics for real-time display
-                    // Merge if it's partial data, otherwise replace if full turn
-                    setMetrics((prev: any) => {
-                        if (fullTurnData) {
-                            lastFullTurnRef.current = true;
-                            return metricsData;
-                        }
-
-                        const isNewTurn = lastFullTurnRef.current;
-                        lastFullTurnRef.current = false;
-
-                        // If it's a new turn, start with an empty object but preserve provider/model info
-                        let base = (prev || {});
-                        if (isNewTurn) {
-                            const preserved: any = {};
-                            const keysToPreserve = [
-                                'provider_class_name', 'provider_model_name',
-                                'stt_provider_class', 'stt_model_name',
-                                'llm_provider_class', 'llm_model_name',
-                                'tts_provider_class', 'tts_model_name'
-                            ];
-                            keysToPreserve.forEach(key => {
-                                if (base[key]) preserved[key] = base[key];
-                            });
-                            base = preserved;
-                        }
-
-                        // Merge only non-null values
-                        const updates: any = {};
-                        Object.keys(metricsData).forEach(key => {
-                            if (metricsData[key] !== null && metricsData[key] !== undefined) {
-                                updates[key] = metricsData[key];
-                            }
-                        });
-
-                        return { ...base, ...updates };
-                    });
-
-                    // Only update history (for graph) when full_turn_data is true
-                    if (fullTurnData) {
-                        setMetricsHistory((prev: any[]) => [...prev, metricsData].slice(-20));
-
-                        addEvent("fullTurnComplete", { type });
-                    }
-
-                    // Handle user_speech field for immediate display
-                    // Only process if there's no timeline data (to avoid redundant updates)
-                    if (metricsData.user_speech && typeof metricsData.user_speech === 'string' &&
-                        (!metricsData.timeline || !Array.isArray(metricsData.timeline) || metricsData.timeline.length === 0)) {
-
-                        const userText = metricsData.user_speech;
-                        setTranscripts(prev => {
-                            // Check if there's already a partial user message (interim result)
-                            const lastUserIndex = [...prev].reverse().findIndex(t => t.role === 'user');
-                            const actualIndex = lastUserIndex >= 0 ? prev.length - 1 - lastUserIndex : -1;
-
-                            if (actualIndex >= 0 && prev[actualIndex].isPartial) {
-                                const prevText = prev[actualIndex].text;
-                                // Check if this is a continuation (new text is longer and contains previous)
-                                // or a new segment (completely different text)
-                                const isContinuation = userText.length > prevText.length && userText.includes(prevText);
-
-                                if (isContinuation) {
-                                    // Update the existing partial user message (continuous speech)
-
-                                    const newTranscripts = [...prev];
-                                    newTranscripts[actualIndex] = {
-                                        ...newTranscripts[actualIndex],
-                                        text: userText
-                                    };
-                                    return sortTranscripts(newTranscripts);
-                                } else {
-                                    // New segment after pause - finalize previous and add new
-
-                                    const newTranscripts = [...prev];
-                                    newTranscripts[actualIndex] = {
-                                        ...newTranscripts[actualIndex],
-                                        isPartial: false // Finalize the previous segment
-                                    };
-                                    const tempId = `temp-user-${Date.now()}`;
-                                    const updated = [...newTranscripts, {
-                                        role: "user" as const,
-                                        text: userText,
-                                        id: tempId,
-                                        uid: `uid-${Date.now()}-${Math.random()}`,
-                                        isPartial: true,
-                                        timestamp: lastEventTimeRef.current + 0.01
-                                    }];
-                                    return sortTranscripts(updated).slice(-50);
-                                }
-                            } else {
-                                // Add new user message if no partial exists
-                                const existingIndex = prev.findIndex(t => t.text === userText);
-                                if (existingIndex === -1) {
-
-                                    const tempId = `temp-user-${Date.now()}`;
-                                    const updated = [...prev, {
-                                        role: "user" as const,
-                                        text: userText,
-                                        id: tempId,
-                                        uid: `uid-${Date.now()}-${Math.random()}`,
-                                        isPartial: true,
-                                        timestamp: lastEventTimeRef.current + 0.01
-                                    }];
-                                    return sortTranscripts(updated).slice(-50);
-                                }
-                                return prev;
-                            }
-                        });
-                    }
-
-                    // Handle agent_speech field directly (for initial greeting)
-                    // Only process if there's no timeline data (to avoid duplicates)
-                    if (metricsData.agent_speech && typeof metricsData.agent_speech === 'string' &&
-                        (!metricsData.timeline || !Array.isArray(metricsData.timeline) || metricsData.timeline.length === 0)) {
-
-                        const agentText = metricsData.agent_speech;
-
-                        // Only add as greeting if this is the first agent message
-                        if (!greetingShownRef.current) {
-                            const greetingId = `greeting-${agentText}`;
-
-                            setTranscripts(prev => {
-                                // Check if this greeting already exists
-                                const existingIndex = prev.findIndex(t => t.id === greetingId || t.text === agentText);
-
-                                if (existingIndex === -1) {
-                                    greetingShownRef.current = true;
-                                    const updated = [...prev, {
-                                        role: "agent" as const,
-                                        text: agentText,
-                                        id: greetingId,
-                                        uid: `uid-${Date.now()}-${Math.random()}`,
-                                        isPartial: false,
-                                        timestamp: 0 // Greeting always first
-                                    }];
-                                    return sortTranscripts(updated).slice(-50);
-                                }
-                                return prev;
-                            });
-                        } else {
-                            // For non-greeting agent messages, add them immediately with temp ID
-                            setTranscripts(prev => {
-                                const tempId = `temp-agent-${Date.now()}`;
-                                const existingIndex = prev.findIndex(t => t.text === agentText);
-
-                                if (existingIndex === -1) {
-
-                                    const updated = [...prev, {
-                                        role: "agent",
-                                        text: agentText,
-                                        id: tempId,
-                                        uid: `uid-${Date.now()}-${Math.random()}`,
-                                        isPartial: true,
-                                        timestamp: lastEventTimeRef.current + 0.02
-                                    }];
-                                    return sortTranscripts(updated).slice(-50);
-                                }
-                                return prev;
-                            });
-                        }
-                    }
-
-                    // Update transcripts from timeline if available
-                    if (metricsData.timeline && Array.isArray(metricsData.timeline)) {
-
-                        metricsData.timeline.forEach((event: any) => {
-                            if (event.event_type && event.text) {
-                                // Update last known event time
-                                const eventTime = event.end_time || event.start_time;
-                                if (eventTime && typeof eventTime === 'number') {
-                                    lastEventTimeRef.current = Math.max(lastEventTimeRef.current, eventTime);
-                                }
-
-
-                                const role = event.event_type === "user_speech" ? "user" : "agent";
-                                setTranscripts(prev => {
-                                    const id = `${event.start_time}-${role}`;
-                                    const existingIndex = prev.findIndex(t => t.id === id || t.text === event.text);
-
-                                    if (existingIndex !== -1) {
-                                        // Update existing item if:
-                                        // 1. It has a temp ID (needs to be finalized with timeline ID)
-                                        // 2. Text changed
-                                        // 3. End time is available and it was partial
-                                        if (prev[existingIndex].id.startsWith('temp-') || prev[existingIndex].text !== event.text || (event.end_time && prev[existingIndex].isPartial)) {
-                                            const newTranscripts = [...prev];
-                                            newTranscripts[existingIndex] = {
-                                                ...newTranscripts[existingIndex],
-                                                text: event.text,
-                                                isPartial: !event.end_time,
-                                                id,  // Update to timeline ID
-                                                timestamp: event.start_time // Update to accurate timeline timestamp
-                                            };
-
-                                            return sortTranscripts(newTranscripts);
-                                        }
-
-                                        return prev;
-                                    }
-
-                                    const newTranscript = {
-                                        role,
-                                        text: event.text,
-                                        id,
-                                        uid: `uid-${Date.now()}-${Math.random()}`,
-                                        isPartial: !event.end_time,
-                                        timestamp: event.start_time
-                                    };
-
-                                    const updated = [...prev, newTranscript];
-                                    return sortTranscripts(updated).slice(-50);
-                                });
-                            }
-                        });
-                    }
-
-                } else if (payload.type === "PERFORMANCE") {
-                    // Legacy format support
-                    let metricsData = payload.data;
-
-                    // Detect pipeline type from legacy format
-                    if (metricsData && metricsData.type === "RealtimeInteraction") {
-                        setPipelineType("realtime");
-                    } else if (metricsData && metricsData.type === "CascadingInteraction") {
-                        setPipelineType("cascading");
-                    }
-
-                    if (metricsData && metricsData.data && Array.isArray(metricsData.data)) {
-                        metricsData = metricsData.data[0];
-                    }
-                    setMetrics(metricsData);
-                    setMetricsHistory(prev => [...prev, metricsData].slice(-20));
-                    addEvent("performanceMetricsReceived");
-                } else if (payload.type === "EVENT") {
-                    const { event, data } = payload;
-                    addEvent(event, data);
-
-                    if (event === "transcript") {
-                        setTranscripts(prev => {
-                            const role = data.role === "user" ? "user" : "agent";
-                            const newMsg = {
-                                role,
-                                text: data.text,
-                                id: `${Date.now()}-${role}`,
-                                uid: `uid-${Date.now()}-${Math.random()}`,
-                                isPartial: false,
-                                timestamp: lastEventTimeRef.current + 0.01
-                            };
-                            return sortTranscripts([...prev, newMsg]).slice(-50);
-                        });
-                    }
-                }
-            } catch (e) {
-                console.error("Error parsing AGENT_METRICS message", e);
+        // Detect pipeline type from providers
+        if (payload.providers) {
+            if (payload.providers.providerClass) {
+                setPipelineType("realtime");
+            } else if (payload.providers.sttProviderClass || payload.providers.llmProviderClass) {
+                setPipelineType("cascading");
             }
-        },
-    });
+        }
+
+        // Map camelCase to snake_case for rendering
+        const mapped: any = {};
+
+        if (payload.latency) {
+            if (payload.latency.e2eLatency != null) mapped.e2e_latency = payload.latency.e2eLatency;
+            if (payload.latency.ttfb != null) mapped.ttfb = payload.latency.ttfb;
+            if (payload.latency.sttLatency != null) mapped.stt_latency = payload.latency.sttLatency;
+            if (payload.latency.ttft != null) mapped.llm_ttft = payload.latency.ttft;
+            if (payload.latency.eouLatency != null) mapped.eou_latency = payload.latency.eouLatency;
+        }
+
+        if (payload.providers?.providerClass) {
+            mapped.provider_class_name = payload.providers.providerClass;
+            mapped.provider_model_name = payload.providers.modelName || "";
+        }
+        if (payload.providers?.sttProviderClass) {
+            mapped.stt_provider_class = payload.providers.sttProviderClass;
+            mapped.stt_model_name = payload.providers.sttModelName || "";
+        }
+        if (payload.providers?.llmProviderClass) {
+            mapped.llm_provider_class = payload.providers.llmProviderClass;
+            mapped.llm_model_name = payload.providers.llmModelName || "";
+        }
+        if (payload.providers?.ttsProviderClass) {
+            mapped.tts_provider_class = payload.providers.ttsProviderClass;
+            mapped.tts_model_name = payload.providers.ttsModelName || "";
+        }
+
+        setMetrics((prev: any) => ({ ...(prev || {}), ...mapped }));
+
+        const hasLatencyData = payload.latency && Object.keys(payload.latency).length > 0;
+        if (hasLatencyData) {
+            setMetricsHistory((prev: any[]) => [...prev, mapped].slice(-20));
+        }
+    }, [latestMetrics]);
+
+    // Process transcriptions from onAgentTranscriptionReceived — the ONLY source of transcripts
+    useEffect(() => {
+        if (!latestTranscription) return;
+
+        const { segment, participant } = latestTranscription;
+        if (!segment?.text) return;
+
+        const meta = participant?.metaData as any;
+        const name = participant?.displayName || "";
+        const isAgent = meta?.is_videosdk_agent === true
+            || name.toLowerCase().includes("agent");
+        const role = isAgent ? "agent" : "user";
+        const participantName = name || (isAgent ? "Agent" : "User");
+        const text = segment.text;
+        const timestamp = segment.timestamp || Date.now();
+
+        setTranscripts(prev => {
+            const current = currentSpeakerRef.current;
+
+            // Same speaker continuing — update their last entry in-place
+            if (current && current.role === role) {
+                const idx = prev.findIndex(t => t.id === current.id);
+                if (idx >= 0) {
+                    const updated = [...prev];
+                    updated[idx] = { ...updated[idx], text };
+                    return updated;
+                }
+            }
+
+            // New speaker or first message — finalize previous, create new entry
+            const newId = `${role}-${Date.now()}-${Math.random()}`;
+            currentSpeakerRef.current = { role, id: newId };
+
+            return [...prev, {
+                role,
+                text,
+                id: newId,
+                uid: newId,
+                participantName,
+                timestamp,
+            }].slice(-50);
+        });
+    }, [latestTranscription]);
 
     // Format helper
     const formatValue = (value: any, unit: string = "ms") => {
@@ -670,25 +329,17 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                 { label: "Provider", value: metrics.provider_class_name || "-" },
                 { label: "Model", value: metrics.provider_model_name || "-" },
                 { label: "TTFB", value: formatValue(metrics.ttfb) },
-                { label: "Thinking Delay", value: formatValue(metrics.thinking_delay) },
                 { label: "E2E Latency", value: formatValue(metrics.e2e_latency) },
-                { label: "Interrupted", value: metrics.interrupted ? "Yes" : "No" },
-                { label: "A2A Enabled", value: metrics.is_a2a_enabled ? "Yes" : "No" },
-                { label: "Handoff", value: metrics.handoff_occurred ? "Yes" : "No" }
             ]
             : [
                 { label: "STT", value: `${metrics.stt_provider_class || "-"} / ${metrics.stt_model_name || "-"}` },
                 { label: "LLM", value: `${metrics.llm_provider_class || "-"} / ${metrics.llm_model_name || "-"}` },
                 { label: "TTS", value: `${metrics.tts_provider_class || "-"} / ${metrics.tts_model_name || "-"}` },
                 { label: "STT Latency", value: formatValue(metrics.stt_latency) },
-                { label: "LLM Latency", value: formatValue(metrics.llm_ttft) },
-                { label: "TTS Latency", value: formatValue(metrics.tts_latency) },
+                { label: "LLM TTFT", value: formatValue(metrics.llm_ttft) },
                 { label: "E2E Latency", value: formatValue(metrics.e2e_latency) },
+                { label: "TTFB", value: formatValue(metrics.ttfb) },
                 { label: "EOU Latency", value: formatValue(metrics.eou_latency) },
-                { label: "LLM Duration", value: formatValue(metrics.llm_duration) },
-                { label: "TTS Characters", value: metrics.tts_characters || "-" },
-                { label: "Total Tokens", value: metrics.total_tokens || "-" },
-                { label: "Interrupted", value: metrics.interrupted ? "Yes" : "No" }
             ];
 
         return (
@@ -754,7 +405,9 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                             ) : (
                                 transcripts.map((t) => (
                                     <div key={t.uid} className={`chat-row ${t.role}`}>
-                                        <span className="role-label">{t.role === "user" ? "User" : "Agent"}</span>
+                                        <span className="role-label">
+                                            {t.participantName || (t.role === "user" ? "User" : "Agent")}
+                                        </span>
                                         <div className="message-bubble">
                                             {t.text}
                                         </div>
