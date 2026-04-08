@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { useMeeting, useParticipant } from "@videosdk.live/react-sdk";
 import { AgentAudioPlayer } from "./AgentAudioPlayer";
 import { AgentVideoPlayer } from "./AgentVideoPlayer";
-import { WaveAvatar } from "./WaveAvatar";
-import { VoiceActivityIndicator } from "./VoiceActivityIndicator";
 import { AgentDashboard } from "./AgentDashboard";
-import MicWithSlash from "../../icons/MicWithSlash";
 
 interface MeetingInterfaceProps {
   meetingId: string;
@@ -17,39 +14,28 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
   onDisconnect,
 }) => {
   const [isJoined, setIsJoined] = useState(false);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
   const joinAttempted = useRef(false);
 
-  const { join, leave, toggleMic, participants, localParticipant, localMicOn } =
-    useMeeting({
-      onMeetingJoined: () => {
+  const [agentState, setAgentState] = useState<string>("idle");
+  const [latestMetrics, setLatestMetrics] = useState<any>(null);
+  const [latestTranscription, setLatestTranscription] = useState<any>(null);
 
-        setIsJoined(true);
-        setConnectionError(null);
-        joinAttempted.current = true;
-      },
-      onMeetingLeft: () => {
-
-        setIsJoined(false);
-        joinAttempted.current = false;
-        onDisconnect();
-      },
-      onParticipantJoined: (participant) => {
-
-      },
-      onParticipantLeft: (participant) => {
-
-      },
-      onError: (error) => {
-        console.error("Meeting error:", error);
-        setConnectionError(error.message || "Connection failed");
-      },
-    });
-
-  useEffect(() => {
-    // We no longer auto-join here. The user must click "Connect".
-    // But if we wanted to support auto-join via prop, we could do it here.
-  }, []);
+  const { join, leave, participants } = useMeeting({
+    onMeetingJoined: () => {
+      setIsJoined(true);
+      joinAttempted.current = true;
+    },
+    onMeetingLeft: () => {
+      setIsJoined(false);
+      joinAttempted.current = false;
+      onDisconnect();
+    },
+    onParticipantJoined: () => {},
+    onParticipantLeft: () => {},
+    onError: (error) => {
+      console.error("[MeetingInterface] Meeting error:", error);
+    },
+  });
 
   const handleConnect = () => {
     if (!isJoined && !joinAttempted.current) {
@@ -57,17 +43,8 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
         join();
         joinAttempted.current = true;
       } catch (error) {
-        console.error("Error joining meeting:", error);
-        setConnectionError("Failed to join meeting");
+        console.error("[MeetingInterface] Error joining meeting:", error);
       }
-    }
-  };
-
-  const handleToggleMic = () => {
-    if (isJoined) {
-      toggleMic();
-    } else {
-
     }
   };
 
@@ -75,31 +52,36 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
     try {
       leave();
     } catch (error) {
-      console.error("Error during disconnect:", error);
+      console.error("[MeetingInterface] Error during disconnect:", error);
       leave();
     }
   };
 
   const handleReturn = () => {
-    // First disconnect from the meeting
     handleDisconnect();
-
-    // Navigate to home page without URL parameters
     window.history.pushState({}, "", window.location.pathname);
-
-    // Trigger a page reload to reset the app state
     window.location.reload();
   };
 
   const participantsList = Array.from(participants.values());
-  const agentParticipant = participantsList.find((p) => {
-    const meta = p.metaData as { is_videosdk_agent?: boolean } | null | undefined;
-    return meta?.is_videosdk_agent === true;
+
+  const resolvedAgent = participantsList.find((p) => {
+    return (p as any).isAgent === true;
   });
 
-  const { isActiveSpeaker, webcamOn } = useParticipant(
-    agentParticipant?.id || ""
-  );
+  const { webcamOn } = useParticipant(resolvedAgent?.id || "");
+
+  const handleAgentStateChanged = useCallback((data: { state: string }) => {
+    setAgentState(data.state);
+  }, []);
+
+  const handleAgentMetrics = useCallback((data: any) => {
+    setLatestMetrics({ ...data, _ts: Date.now() });
+  }, []);
+
+  const handleAgentTranscription = useCallback((data: any) => {
+    setLatestTranscription({ ...data, _ts: Date.now() });
+  }, []);
 
   const urlParams = new URLSearchParams(window.location.search);
   const hasTokenAndMeetingId = urlParams.has("token") && urlParams.has("meetingId");
@@ -120,16 +102,23 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
           isJoined={isJoined}
-          agentParticipantId={agentParticipant?.id}
+          agentParticipantId={resolvedAgent?.id}
           webcamOn={webcamOn}
+          agentState={agentState}
+          latestMetrics={latestMetrics}
+          latestTranscription={latestTranscription}
         />
       </div>
 
-      {/* Hidden players for audio/video processing */}
-      {agentParticipant && (
+      {resolvedAgent && (
         <div style={{ display: "none" }}>
-          <AgentAudioPlayer participantId={agentParticipant.id} />
-          {webcamOn && <AgentVideoPlayer participantId={agentParticipant.id} />}
+          <AgentAudioPlayer
+            participantId={resolvedAgent.id}
+            onAgentStateChanged={handleAgentStateChanged}
+            onAgentMetrics={handleAgentMetrics}
+            onAgentTranscriptionReceived={handleAgentTranscription}
+          />
+          {webcamOn && <AgentVideoPlayer participantId={resolvedAgent.id} />}
         </div>
       )}
     </div>
