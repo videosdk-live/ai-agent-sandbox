@@ -91,7 +91,7 @@ const AgentMeeting: React.FC = () => {
       <MeetingProvider
         config={{
           meetingId,
-          micEnabled: true,
+          micEnabled: false,
           webcamEnabled: false,
           name: "User",
           debugMode: false,

@@ -20,7 +20,7 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
   const [latestMetrics, setLatestMetrics] = useState<any>(null);
   const [latestTranscription, setLatestTranscription] = useState<any>(null);
 
-  const { join, leave, participants } = useMeeting({
+  const { join, leave, participants ,unmuteMic} = useMeeting({
     onMeetingJoined: () => {
       setIsJoined(true);
       joinAttempted.current = true;
@@ -41,6 +41,9 @@ export const MeetingInterface: React.FC<MeetingInterfaceProps> = ({
     if (!isJoined && !joinAttempted.current) {
       try {
         join();
+        setTimeout(() => {
+          unmuteMic()
+        }, 400);
         joinAttempted.current = true;
       } catch (error) {
         console.error("[MeetingInterface] Error joining meeting:", error);
