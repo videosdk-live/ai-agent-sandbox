@@ -258,12 +258,11 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
 
         if (payload.latency) {
             // Normalize everything to ms
-            const toMs = (v: number) => v < 100 ? v * 1000 : v;
-            if (payload.latency.e2eLatency != null) mapped.e2e_latency = toMs(payload.latency.e2eLatency);
-            if (payload.latency.ttfb != null) mapped.ttfb = toMs(payload.latency.ttfb);
-            if (payload.latency.sttLatency != null) mapped.stt_latency = toMs(payload.latency.sttLatency);
-            if (payload.latency.ttft != null) mapped.llm_ttft = toMs(payload.latency.ttft);
-            if (payload.latency.eouLatency != null) mapped.eou_latency = toMs(payload.latency.eouLatency);
+            if (payload.latency.e2eLatency != null) mapped.e2e_latency = payload.latency.e2eLatency
+            if (payload.latency.ttfb != null) mapped.ttfb = payload.latency.ttfb
+            if (payload.latency.sttLatency != null) mapped.stt_latency = payload.latency.sttLatency
+            if (payload.latency.ttft != null) mapped.llm_ttft = payload.latency.ttft
+            if (payload.latency.eouLatency != null) mapped.eou_latency = payload.latency.eouLatency
         }
 
         if (payload.providers?.providerClass) {
@@ -372,10 +371,10 @@ export const AgentDashboard: React.FC<AgentDashboardProps> = ({
                 { label: "LLM", value: `${metrics.llm_provider_class || "-"} / ${metrics.llm_model_name || "-"}` },
                 { label: "TTS", value: `${metrics.tts_provider_class || "-"} / ${metrics.tts_model_name || "-"}` },
                 { label: "STT Latency", value: formatValue(metrics.stt_latency) },
-                { label: "LLM TTFT", value: formatValue(metrics.llm_ttft) },
-                { label: "E2E Latency", value: formatValue(metrics.e2e_latency) },
-                { label: "TTFB", value: formatValue(metrics.ttfb) },
                 { label: "EOU Latency", value: formatValue(metrics.eou_latency) },
+                { label: "LLM TTFT", value: formatValue(metrics.llm_ttft) },
+                { label: "TTFB", value: formatValue(metrics.ttfb) },
+                { label: "E2E Latency", value: formatValue(metrics.e2e_latency) },
             ];
 
         return (
